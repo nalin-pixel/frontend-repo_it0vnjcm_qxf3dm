@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Hero from './components/Hero'
 import ScrollSections from './components/ScrollSections'
 import ControlsPanel from './components/ControlsPanel'
+import ChaptersOverlay from './components/ChaptersOverlay'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
 
@@ -75,7 +76,8 @@ function App() {
           {analyzer.error ? `Micro non autorisé: ${analyzer.error}` : 'Initialisation audio… Autorisez l’accès au micro.'}
         </div>
       )}
-      <ControlsPanel onUploaded={() => { /* ScrollSections auto-fetches media list */ }} />
+      <ChaptersOverlay />
+      <ControlsPanel onUploaded={() => { }} />
       <section className="py-16 text-center text-blue-300/70 text-sm">© {new Date().getFullYear()} PulseAnime – Expérience WOW synchronisée audio+scroll.</section>
     </div>
   )

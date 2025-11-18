@@ -56,8 +56,11 @@ export default function ImmersiveScene({ analyzer, media = [], backendUrl }) {
     dir.position.set(5, 5, 5)
     scene.add(dir)
 
+    // Perf guard for mobile
+    const isMobile = window.innerWidth < 640
+
     // Particles tunnel
-    const tunnelCount = 2000
+    const tunnelCount = isMobile ? 900 : 2000
     const tunnelGeo = new THREE.BufferGeometry()
     const positions = new Float32Array(tunnelCount * 3)
     const colors = new Float32Array(tunnelCount * 3)
@@ -84,22 +87,66 @@ export default function ImmersiveScene({ analyzer, media = [], backendUrl }) {
     // Reactive neon grid floor
     const grid = new THREE.GridHelper(40, 40, 0x22d3ee, 0x7c3aed)
     grid.position.y = -2.5
+    grid.material.transparent = true
+    grid.material.opacity = 0.5
     scene.add(grid)
+
+    // Abstract landscape (shader plane)
+    const landUniforms = {
+      uTime: { value: 0 },
+      uAmp: { value: 0 },
+      uReveal: { value: 0 },
+      uColorA: { value: new THREE.Color('#22d3ee') },
+      uColorB: { value: new THREE.Color('#7c3aed') },
+    }
+    const landMat = new THREE.ShaderMaterial({
+      uniforms: landUniforms,
+      transparent: true,
+      vertexShader: `
+        uniform float uTime; uniform float uAmp; uniform float uReveal;
+        varying float vH; varying vec2 vUv;
+        void main(){
+          vUv = uv;
+          vec3 p = position;
+          float n = sin(p.x*2.0 + uTime*0.8) * cos(p.y*2.0 + uTime*0.6);
+          p.z += n * (0.6 + uAmp*2.0);
+          vH = n;
+          vec4 mv = modelViewMatrix * vec4(p,1.0);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: `
+        uniform float uReveal; uniform vec3 uColorA; uniform vec3 uColorB; varying float vH; varying vec2 vUv;
+        void main(){
+          float m = smoothstep(0.0, 1.0, uReveal);
+          vec3 col = mix(uColorA, uColorB, 0.5 + 0.5*vH);
+          float alpha = m * (0.4 + 0.6*abs(vH));
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
+      side: THREE.DoubleSide,
+    })
+    const landGeo = new THREE.PlaneGeometry(18, 18, 120, 120)
+    const landscape = new THREE.Mesh(landGeo, landMat)
+    landscape.rotation.x = -Math.PI / 2
+    landscape.position.set(0, -2.2, -6)
+    landscape.visible = true
+    scene.add(landscape)
 
     // Load media as textures and place them
     let disposed = false
-    const texPromises = (media || []).slice(0, 12).map(async (item, idx) => {
+    const texPromises = (media || []).slice(0, isMobile ? 8 : 12).map(async (item, idx) => {
       try {
         const res = await createTextureFromMedia(item, backendUrl)
         if (disposed) return
         const aspect = res.kind === 'video' ? (res.element.videoWidth || 16) / Math.max(res.element.videoHeight || 9, 1) : (res.texture.image?.width || 16) / Math.max(res.texture.image?.height || 9, 1)
-        const h = 1.2
-        const w = Math.max(1.2, h * aspect)
+        const h = 1.1
+        const w = Math.max(1.1, h * aspect)
         const geo = new THREE.PlaneGeometry(w, h, 1, 1)
         const mat = new THREE.MeshStandardMaterial({ map: res.texture, emissive: new THREE.Color(0x3b82f6), emissiveIntensity: 0.25, metalness: 0.2, roughness: 0.6, side: THREE.DoubleSide })
         const mesh = new THREE.Mesh(geo, mat)
         const radius = 3 + (idx % 6) * 0.35
-        const angle = (idx / 12) * Math.PI * 2
+        const angle = (idx / Math.max(10, media.length)) * Math.PI * 2
         mesh.position.set(Math.cos(angle) * radius, -0.2 + (idx % 5) * 0.15, -2 - idx * 0.8)
         mesh.rotation.y = angle + Math.PI
         mediaGroup.add(mesh)
@@ -111,20 +158,26 @@ export default function ImmersiveScene({ analyzer, media = [], backendUrl }) {
     // Reactive uniforms/state
     const state = { tunnelSpeed: 0.5, tunnelRadius: 2.1, vortexSpin: 0.2, parallax: 0.6 }
 
-    // Scroll-driven timeline
+    // Scroll-driven timeline with chapters
     const tl = gsap.timeline({ defaults: { ease: 'power2.out' } })
-    tl.to(state, { tunnelSpeed: 2.0, duration: 1.2 })
-      .to(state, { tunnelRadius: 3.2, duration: 1.2 }, '<')
-      .to(camera.position, { z: 1.8, duration: 1.2 }, '<')
-      .to(state, { vortexSpin: 1.1, duration: 1.2 })
-      .to(camera.position, { z: -6, duration: 2.0 })
-      .to(state, { tunnelSpeed: 0.8, duration: 1.0 })
+    tl.add(() => window.dispatchEvent(new CustomEvent('chapter', { detail: { index: 0 } }))) // Préambule
+      .to(state, { tunnelSpeed: 1.4, duration: 1.0 })
+      .to(state, { tunnelRadius: 3.0, duration: 1.0 }, '<')
+      .to(camera.position, { z: 2.2, duration: 1.0 }, '<')
+      .add(() => window.dispatchEvent(new CustomEvent('chapter', { detail: { index: 1 } }))) // Tunnel
+      .to(state, { vortexSpin: 0.8, duration: 1.0 })
+      .to(camera.position, { z: -3.5, duration: 1.6 })
+      .add(() => window.dispatchEvent(new CustomEvent('chapter', { detail: { index: 2 } }))) // Vortex
+      .to(state, { tunnelSpeed: 0.8, duration: 0.8 })
+      .to(landUniforms.uReveal, { value: 1, duration: 1.2 })
+      .to(camera.position, { z: -6.5, duration: 1.6 })
+      .add(() => window.dispatchEvent(new CustomEvent('chapter', { detail: { index: 3 } }))) // Paysages
 
     ScrollTrigger.create({
       animation: tl,
       trigger: container,
       start: 'top top',
-      end: '+=3000',
+      end: '+=3200',
       scrub: 1,
       pin: true,
     })
@@ -150,6 +203,10 @@ export default function ImmersiveScene({ analyzer, media = [], backendUrl }) {
       // Audio drive
       const sample = analyzer?.sample ? analyzer.sample() : { amplitude: 0, freqs: [] }
       const amp = sample.amplitude || 0
+
+      // Update uniforms
+      landUniforms.uTime.value = t
+      landUniforms.uAmp.value = amp
 
       // Parallax
       camera.position.x += (mouse.x * state.parallax - camera.position.x) * 0.05
@@ -179,6 +236,11 @@ export default function ImmersiveScene({ analyzer, media = [], backendUrl }) {
         m.rotation.y += 0.15 * dt
         m.material.emissiveIntensity = 0.25 + amp * 0.75
       })
+
+      // Grid flicker with audio
+      if (grid.material) {
+        grid.material.opacity = 0.35 + Math.min(0.6, amp * 1.2)
+      }
 
       renderer.render(scene, camera)
     }
@@ -227,7 +289,7 @@ export default function ImmersiveScene({ analyzer, media = [], backendUrl }) {
 
     let canceled = false
     const run = async () => {
-      const items = (media || []).slice(0, 12)
+      const items = (media || []).slice(0, window.innerWidth < 640 ? 8 : 12)
       for (let idx = 0; idx < items.length; idx++) {
         if (canceled) return
         try {
@@ -235,8 +297,8 @@ export default function ImmersiveScene({ analyzer, media = [], backendUrl }) {
           const res = await createTextureFromMedia(item, backendUrl)
           if (canceled) return
           const aspect = res.kind === 'video' ? (res.element.videoWidth || 16) / Math.max(res.element.videoHeight || 9, 1) : (res.texture.image?.width || 16) / Math.max(res.texture.image?.height || 9, 1)
-          const h = 1.2
-          const w = Math.max(1.2, h * aspect)
+          const h = 1.1
+          const w = Math.max(1.1, h * aspect)
           const geo = new THREE.PlaneGeometry(w, h, 1, 1)
           const mat = new THREE.MeshStandardMaterial({ map: res.texture, emissive: new THREE.Color(0x3b82f6), emissiveIntensity: 0.25, metalness: 0.2, roughness: 0.6, side: THREE.DoubleSide, transparent: true })
           const mesh = new THREE.Mesh(geo, mat)
