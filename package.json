@@ -28,7 +28,8 @@
     "framer-motion": "^11.0.0",
     "lucide-react": "^0.363.0",
     "tailwind-merge": "^2.2.0",
-    "three": "^0.161.0"
+    "three": "^0.161.0",
+    "gsap": "^3.12.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",
